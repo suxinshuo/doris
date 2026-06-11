@@ -212,6 +212,17 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
+    protected String getRowFilterAndDataMaskAccessType() {
+        // Hive Ranger policies store access types in lower case (e.g. "select").
+        // Ranger's RangerOptimizedPolicyEvaluator.hasMatchablePolicyItem() pre-filters
+        // row-filter/data-mask policy items with a case-sensitive accessPerms.contains(accessType),
+        // so the upper-case "SELECT" from the base class would never match and row-filter/
+        // data-mask policies would be silently skipped. Keep it consistent with the access
+        // type used by the privilege checks (createRequest(user, accessType) lower-cases it too).
+        return HiveAccessType.SELECT.name().toLowerCase();
+    }
+
+    @Override
     protected RangerBasePlugin getPlugin() {
         return hivePlugin;
     }

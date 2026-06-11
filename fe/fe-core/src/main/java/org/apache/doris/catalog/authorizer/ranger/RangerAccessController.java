@@ -97,7 +97,15 @@ public abstract class RangerAccessController implements CatalogAccessController 
         // The internal logic of the ranger is to traverse all permission items.
         // Since the ranger UI will set the access type to 'SELECT',
         // we will keep it consistent with the UI here to avoid performance issues
-        request.setAccessType(DorisAccessType.SELECT.name());
+        // we will keep it consistent with the UI here to avoid performance issues.
+        // NOTE: the access type must match the case used in the target service-def/policies.
+        // Ranger's RangerOptimizedPolicyEvaluator.hasMatchablePolicyItem() pre-filters
+        // candidate policy items via a case-SENSITIVE accessPerms.contains(accessType).
+        // Hive policies store the access type in lower case ("select"), so subclasses
+        // backed by the Hive service-def must override getRowFilterAndDataMaskAccessType()
+        // to return the lower-cased value, otherwise row-filter/data-mask policies are
+        // silently skipped. See getRowFilterAndDataMaskAccessType().
+        request.setAccessType(getRowFilterAndDataMaskAccessType());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -125,7 +133,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String col) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
-        request.setAccessType(DorisAccessType.SELECT.name());
+        request.setAccessType(getRowFilterAndDataMaskAccessType());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -163,6 +171,19 @@ public abstract class RangerAccessController implements CatalogAccessController 
                 return Optional.of(new RangerDataMaskPolicy(currentUser, ctl, db, tbl, col, policy.getPolicyId(),
                         policy.getPolicyVersion(), maskType, transformer.replace("{col}", col)));
         }
+    }
+
+    /**
+     * Access type used when evaluating row-filter and data-mask policies.
+     * <p>
+     * Defaults to {@link DorisAccessType#SELECT} (upper case "SELECT"), which matches the
+     * Doris internal service-def. Subclasses whose backing Ranger service-def uses a
+     * different case (e.g. the Hive service-def uses lower case "select") MUST override
+     * this, because Ranger pre-filters candidate row-filter/data-mask policy items with a
+     * case-sensitive {@code accessPerms.contains(accessType)} check.
+     */
+    protected String getRowFilterAndDataMaskAccessType() {
+        return DorisAccessType.SELECT.name();
     }
 
     protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);
