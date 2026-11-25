@@ -31,14 +31,12 @@ public class RangerHiveAuditLogFlusher extends TimerTask {
 
     @Override
     public void run() {
-        while (true) {
+        try {
             this.auditHandler.flushAudit();
-
-            try {
-                Thread.sleep(20000);
-            } catch (InterruptedException e) {
-                log.info("error ", e);
-            }
+        } catch (Throwable t) {
+            // ScheduledThreadPoolExecutor suppresses every later fixed-rate invocation when one run escapes with
+            // an exception. Keep the periodic flusher alive; the next tick flushes newly buffered events.
+            log.warn("Failed to flush Ranger Hive audit events; will retry on the next tick", t);
         }
     }
 }

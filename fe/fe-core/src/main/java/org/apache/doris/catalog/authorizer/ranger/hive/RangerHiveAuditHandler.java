@@ -63,6 +63,7 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     }
 
     private final int requestQuerySize;
+    private final Object auditBufferLock = new Object();
     private final Collection<AuthzAuditEvent> auditEvents = new ArrayList<>();
     private boolean deniedExists = false;
 
@@ -237,17 +238,30 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     }
 
     public void flushAudit() {
-        for (AuthzAuditEvent auditEvent : auditEvents) {
-            if (deniedExists && auditEvent.getAccessResult() != 0) { // if deny exists, skip logging for allowed results
-                continue;
-            }
+        Collection<AuthzAuditEvent> eventsToFlush;
+        boolean deniedExistsForEvents;
+        // Keep the producer critical section limited to snapshot/reset. Provider delivery can block, but
+        // authorization callbacks remain free to enqueue into the next batch in the meantime.
+        synchronized (auditBufferLock) {
+            eventsToFlush = new ArrayList<>(auditEvents);
+            deniedExistsForEvents = deniedExists;
+            auditEvents.clear();
+            deniedExists = false;
+        }
 
-            super.logAuthzAudit(auditEvent);
+        for (AuthzAuditEvent auditEvent : eventsToFlush) {
+            // If a deny exists, skip logging allowed results from the same drained batch.
+            if (!deniedExistsForEvents || auditEvent.getAccessResult() == 0) {
+                super.logAuthzAudit(auditEvent);
+            }
         }
     }
 
     private void addAuthzAuditEvent(AuthzAuditEvent auditEvent) {
-        if (auditEvent != null) {
+        if (auditEvent == null) {
+            return;
+        }
+        synchronized (auditBufferLock) {
             auditEvents.add(auditEvent);
 
             if (auditEvent.getAccessResult() == 0) {
